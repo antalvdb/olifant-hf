@@ -12,6 +12,7 @@ import shutil
 
 from transformers import PreTrainedModel
 from transformers.modeling_outputs import CausalLMOutputWithPast
+from huggingface_hub import hf_hub_download, snapshot_download
 
 # Try to import TiMBL backends in order of preference
 TIMBL_MODE = None
@@ -19,42 +20,31 @@ timbl = None
 
 # Try 1: Python bindings (best performance)
 try:
-    sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'timbl-python'))
     import timbl
     TIMBL_MODE = "python_bindings"
     print("Using TiMBL Python bindings")
 except ImportError:
     pass
 
-# Try 2: CLI wrapper (portable but may have issues)
-# NOTE: Disabled for now due to segfaults with existing .ibase files
-# Enable this once TiMBL compatibility issues are resolved
-if False and TIMBL_MODE is None:
-    try:
-        from .timbl_wrapper import TimblCLIClassifier as timbl_TimblClassifier
-        TIMBL_MODE = "cli"
-        print("Using TiMBL CLI wrapper")
-
-        class TimblModule:
-            TimblClassifier = timbl_TimblClassifier
-
-        timbl = TimblModule()
-    except Exception as e:
-        print(f"TiMBL CLI wrapper not available: {e}")
-
-# Try 3: Mock backend (for demonstration only!)
+# Try 2: Mock backend (for demonstration only!)
 if TIMBL_MODE is None:
-    from .mock_timbl import MockTimblClassifier as timbl_MockClassifier
+    try:
+        from mock_timbl import MockTimblClassifier as timbl_MockClassifier
+    except ImportError:
+        from .mock_timbl import MockTimblClassifier as timbl_MockClassifier
     TIMBL_MODE = "mock"
     print("⚠️  Using MOCK TiMBL backend - predictions are random!")
-    print("   For real inference, install python3-timbl or fix TiMBL CLI")
+    print("   For real inference, install python3-timbl")
 
     class TimblModule:
         TimblClassifier = timbl_MockClassifier
 
     timbl = TimblModule()
 
-from .configuration_olifant import OlifantConfig
+try:
+    from configuration_olifant import OlifantConfig
+except ImportError:
+    from .configuration_olifant import OlifantConfig
 
 
 class OlifantForCausalLM(PreTrainedModel):
@@ -109,6 +99,23 @@ class OlifantForCausalLM(PreTrainedModel):
         Args:
             model_path: Path to the directory containing .ibase file, or direct path to .ibase
         """
+        ibase_path = None
+        model_prefix = None
+        
+        # Check if this is a HuggingFace Hub model ID (contains / but is not a local path)
+        is_hf_hub = "/" in model_path and not os.path.exists(model_path)
+        
+        if is_hf_hub:
+            # Download from HuggingFace Hub
+            print(f"Downloading model files from HuggingFace Hub: {model_path}")
+            
+            # Download the entire repo to get all files
+            local_dir = snapshot_download(
+                repo_id=model_path,
+                allow_patterns=["*.ibase", "*.wgt", "config.json"]
+            )
+            model_path = local_dir
+        
         # Determine the .ibase file path
         if model_path.endswith('.ibase'):
             ibase_path = model_path
