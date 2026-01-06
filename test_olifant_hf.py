@@ -2,17 +2,15 @@
 Test script for Olifant HuggingFace integration
 """
 
+import pytest
 import torch
 from transformers import AutoTokenizer
 from olifant_hf import OlifantConfig, OlifantForCausalLM
 
 
-def test_basic_loading():
-    """Test basic model loading"""
-    print("=" * 80)
-    print("TEST 1: Basic Model Loading")
-    print("=" * 80)
-
+@pytest.fixture(scope="module")
+def model_and_tokenizer():
+    """Fixture to create and load model and tokenizer once per module."""
     # Create config
     config = OlifantConfig(
         vocab_size=50257,
@@ -21,153 +19,153 @@ def test_basic_loading():
         model_prefix="edufineweb_train_000001-100k.tok.l4r0"
     )
 
-    print(f"Config created: {config}")
-    print(f"  - vocab_size: {config.vocab_size}")
-    print(f"  - window_size: {config.window_size}")
-    print(f"  - timbl_options: {config.timbl_options}")
-
     # Initialize model
-    print("\nInitializing model...")
     model = OlifantForCausalLM(config)
 
     # Load tokenizer
-    print("\nLoading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained('gpt2')
     model.set_tokenizer(tokenizer)
 
     # Load TiMBL classifier
-    print("\nLoading TiMBL classifier...")
     model._load_timbl_classifier(".")
 
-    print("\n✓ Model loaded successfully!")
     return model, tokenizer
+
+
+@pytest.fixture
+def model(model_and_tokenizer):
+    """Fixture to get model."""
+    return model_and_tokenizer[0]
+
+
+@pytest.fixture
+def tokenizer(model_and_tokenizer):
+    """Fixture to get tokenizer."""
+    return model_and_tokenizer[1]
+
+
+def test_basic_loading(model, tokenizer):
+    """Test basic model loading"""
+    assert model is not None
+    assert tokenizer is not None
+    assert model.config.vocab_size == 50257
+    assert model.config.window_size == 4
+    assert model.timbl_classifier is not None
 
 
 def test_forward_pass(model, tokenizer):
     """Test forward pass"""
-    print("\n" + "=" * 80)
-    print("TEST 2: Forward Pass")
-    print("=" * 80)
-
     # Prepare input
     text = "Hello, how are"
-    print(f"\nInput text: '{text}'")
-
     input_ids = tokenizer.encode(text, return_tensors="pt")
-    print(f"Input IDs shape: {input_ids.shape}")
-    print(f"Input IDs: {input_ids}")
 
     # Forward pass
-    print("\nRunning forward pass...")
     with torch.no_grad():
         outputs = model(input_ids)
 
-    print(f"\n✓ Forward pass successful!")
-    print(f"  - Logits shape: {outputs.logits.shape}")
-    print(f"  - Expected shape: (batch_size={input_ids.shape[0]}, seq_len={input_ids.shape[1]}, vocab_size={model.config.vocab_size})")
+    # Check output shape
+    batch_size, seq_len = input_ids.shape
+    assert outputs.logits.shape == (batch_size, seq_len, model.config.vocab_size)
 
-    # Get next token prediction
+    # Check we can get a prediction
     next_token_logits = outputs.logits[0, -1, :]
     next_token_id = torch.argmax(next_token_logits).item()
-    next_token = tokenizer.decode([next_token_id])
-    print(f"\n  - Predicted next token: '{next_token}' (ID: {next_token_id})")
-
-    return outputs
+    assert 0 <= next_token_id < model.config.vocab_size
 
 
 def test_generation(model, tokenizer):
     """Test text generation"""
-    print("\n" + "=" * 80)
-    print("TEST 3: Text Generation")
-    print("=" * 80)
-
     prompt = "Een aantal kleuren:"
-    print(f"\nPrompt: '{prompt}'")
-
-    # Encode prompt
     input_ids = tokenizer.encode(prompt, return_tensors="pt")
-    print(f"Prompt token IDs: {input_ids}")
+    prompt_len = input_ids.shape[1]
 
     # Generate
-    print("\nGenerating text...")
-    try:
-        with torch.no_grad():
-            output_ids = model.generate(
-                input_ids,
-                max_length=input_ids.shape[1] + 20,
-                do_sample=False,
-                pad_token_id=tokenizer.eos_token_id
-            )
+    with torch.no_grad():
+        output_ids = model.generate(
+            input_ids,
+            max_length=prompt_len + 10,
+            do_sample=False,
+            pad_token_id=tokenizer.eos_token_id
+        )
 
-        generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-        print(f"\n✓ Generation successful!")
-        print(f"\nGenerated text:\n{generated_text}")
+    # Check output
+    assert output_ids.shape[0] == 1  # batch size
+    assert output_ids.shape[1] > prompt_len  # generated something
 
-    except Exception as e:
-        print(f"\n✗ Generation failed: {e}")
-        import traceback
-        traceback.print_exc()
+    generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    assert len(generated_text) > len(prompt)
 
 
-def test_save_and_load(model, tokenizer):
+def test_save_and_load(model, tokenizer, tmp_path):
     """Test save_pretrained and from_pretrained"""
-    print("\n" + "=" * 80)
-    print("TEST 4: Save and Load")
-    print("=" * 80)
-
-    save_dir = "./test_olifant_model"
-    print(f"\nSaving model to: {save_dir}")
+    save_dir = tmp_path / "test_model"
 
     # Save
-    model.save_pretrained(save_dir)
-    print("✓ Model saved!")
+    model.save_pretrained(str(save_dir))
+    assert (save_dir / "config.json").exists()
 
     # Load
-    print("\nLoading model from saved directory...")
-    loaded_model = OlifantForCausalLM.from_pretrained(save_dir)
+    loaded_model = OlifantForCausalLM.from_pretrained(str(save_dir))
     loaded_model.set_tokenizer(tokenizer)
 
-    print("✓ Model loaded from disk!")
-
     # Test that loaded model works
-    print("\nTesting loaded model with forward pass...")
     text = "Test input"
     input_ids = tokenizer.encode(text, return_tensors="pt")
 
     with torch.no_grad():
         outputs = loaded_model(input_ids)
 
-    print(f"✓ Loaded model works! Logits shape: {outputs.logits.shape}")
+    batch_size, seq_len = input_ids.shape
+    assert outputs.logits.shape == (batch_size, seq_len, loaded_model.config.vocab_size)
 
 
 def main():
-    """Run all tests"""
+    """Run all tests directly (without pytest)"""
+    import tempfile
+    from pathlib import Path
+
     print("\n" + "=" * 80)
     print("OLIFANT HUGGINGFACE INTEGRATION TEST SUITE")
     print("=" * 80)
 
     try:
-        # Test 1: Load model
-        model, tokenizer = test_basic_loading()
+        # Setup: Load model and tokenizer
+        print("\nSetting up model and tokenizer...")
+        model, tokenizer = model_and_tokenizer()
+
+        # Test 1: Basic loading
+        print("\nTest 1: Basic loading...")
+        test_basic_loading(model, tokenizer)
+        print("✓ Passed")
 
         # Test 2: Forward pass
+        print("\nTest 2: Forward pass...")
         test_forward_pass(model, tokenizer)
+        print("✓ Passed")
 
         # Test 3: Generation
+        print("\nTest 3: Generation...")
         test_generation(model, tokenizer)
+        print("✓ Passed")
 
         # Test 4: Save and load
-        test_save_and_load(model, tokenizer)
+        print("\nTest 4: Save and load...")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            test_save_and_load(model, tokenizer, Path(tmp_dir))
+        print("✓ Passed")
 
         print("\n" + "=" * 80)
-        print("ALL TESTS COMPLETED!")
+        print("ALL TESTS PASSED!")
         print("=" * 80)
 
     except Exception as e:
         print(f"\n✗ Test failed with error: {e}")
         import traceback
         traceback.print_exc()
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    exit(main())
