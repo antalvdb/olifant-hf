@@ -46,6 +46,10 @@ class OlifantConfig(PretrainedConfig):
         model_prefix: Optional[str] = None,
         ibase_path: Optional[str] = None,
         normalize_distributions: bool = True,
+        # HuggingFace compatibility attributes (not used by Olifant)
+        num_hidden_layers: int = 0,
+        hidden_size: int = 0,
+        num_attention_heads: int = 0,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -57,3 +61,8 @@ class OlifantConfig(PretrainedConfig):
         self.model_prefix = model_prefix
         self.ibase_path = ibase_path
         self.normalize_distributions = normalize_distributions
+
+        # HuggingFace compatibility (memory-based models have no neural layers)
+        self.num_hidden_layers = num_hidden_layers
+        self.hidden_size = hidden_size
+        self.num_attention_heads = num_attention_heads
