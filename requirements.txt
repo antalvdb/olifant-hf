@@ -1,0 +1,14 @@
+# Core dependencies
+torch>=1.9.0
+transformers>=4.20.0
+
+# Optional: TiMBL Python bindings (requires Python 3.10+)
+# python3-timbl>=2023.1.0
+
+# For testing
+pytest>=7.0.0
+
+# Note: On Linux, you'll also need the TiMBL command-line tool:
+# Ubuntu/Debian: sudo apt-get install timbl
+# Fedora/RHEL: sudo dnf install timbl
+# Or compile from source: https://github.com/LanguageMachines/timbl

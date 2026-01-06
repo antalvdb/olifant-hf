@@ -1,0 +1,24 @@
+# Large model files
+*.ibase
+*.wgt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Temporary/backup files
+*~
+*.bak
+
+# Demo/test output directories
+demo_olifant_model/
+test_olifant_model/
+
+# Archives
+*.tar.gz
+*.zip
