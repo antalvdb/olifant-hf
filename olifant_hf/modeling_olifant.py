@@ -288,8 +288,8 @@ class OlifantForCausalLM(PreTrainedModel):
 
             # For each position, predict next token using sliding window
             for pos in range(seq_len):
-                # Get context window ending at current position
-                context_tokens = tokens[max(0, pos - self.config.window_size):pos]
+                # Get context window including current position (to predict next token)
+                context_tokens = tokens[max(0, pos + 1 - self.config.window_size):pos + 1]
 
                 # Pad context to window size
                 padded_context = self._pad_prompt(context_tokens, self.config.window_size)
